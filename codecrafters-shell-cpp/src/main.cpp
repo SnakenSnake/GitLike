@@ -11,11 +11,16 @@ int main() {
   {
   std::cout << "$ ";
   std::string user_input;
-  std::cin>>user_input;
+  std::getline(std::cin,user_input);
   if(user_input=="exit")
   {
     break;
   }
+  else if(user_input.substr(0,5)=="echo ")
+  {
+    std::cout<<user_input.substr(5)<<'\n';
+  }
+  else
   std::cout<<user_input<<": command not found"<<"\n";
   }
   while(true);
