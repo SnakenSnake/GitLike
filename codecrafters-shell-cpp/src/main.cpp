@@ -11,6 +11,36 @@
 #else // If not Windows then os is Linux
     #include <unistd.h>
 #endif
+std::vector<std::string> tokenize(std::string &input)
+{
+  std::vector<std::string> args;
+  std::string curr;
+  bool quote=false;
+  for(char c:input)
+  {
+    if(c=='\'')
+    {
+      quote=!quote;
+    }
+    else if(c==' '&&!quote)
+    {
+      if(!curr.empty())
+      {
+        args.push_back(curr);
+        curr.clear();
+      }
+    }
+    else
+    {
+      curr+=c;
+    }
+  }
+  if(!curr.empty())
+  {
+    args.push_back(curr);
+  }
+  return args;
+}
 void cd(std::string path)
 {
   if(path=="~")
@@ -31,6 +61,32 @@ void cd(std::string path)
   catch(std::filesystem::filesystem_error&){
     std::cout<<"cd: "<<path<<": No such file or directory\n";
   }
+}
+void echo(std::string input)
+{
+  bool quote=false;
+  bool lastspace=false;
+  for(char c:input)
+  {
+    if(c=='\'')
+    {
+      quote=!quote;
+    }
+    else if(c==' '&&!quote)
+    {
+      if(!lastspace)
+      {
+        std::cout<<' ';
+        lastspace=true;
+      }
+    }
+    else
+    {
+      std::cout<<c;
+      lastspace=false;
+    }
+  }
+  std::cout<<'\n';
 }
 void pwd()
 {
@@ -69,13 +125,8 @@ std::string get_command_path(const std::string &user_input)
     }
 int execute_file(std::string user_input)
 {
-  std::istringstream ss(user_input);
-  std::vector<std::string> args;
+  std::vector<std::string> args= tokenize(user_input);
   std::string token;
-  while(ss>>token)
-  {
-    args.push_back(token);
-  }
   if(args.empty())
   {
     return 0;
@@ -138,7 +189,7 @@ int main() {
   }
   else if(user_input.substr(0,5)=="echo ")
   {
-    std::cout<<user_input.substr(5)<<'\n';
+    echo(user_input.substr(5));
   }
   else if(user_input.substr(0,5)=="type ")
   {
