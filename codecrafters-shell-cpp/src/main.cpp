@@ -5,11 +5,17 @@
 #include <cstdlib>
 #include <algorithm>
 #include <sys/wait.h>
+#include <filesystem>
 #ifdef _WIN32 // Identifies if os is Windows
     #include <io.h>
 #else // If not Windows then os is Linux
     #include <unistd.h>
 #endif
+void pwd()
+{
+  // Works for both Linux and Windows systems
+  std::cout<<std::filesystem::current_path().string()<<"\n";
+}
 std::string get_command_path(const std::string &user_input)
 {
   char* path=getenv("PATH");
@@ -91,6 +97,7 @@ int main() {
   builtin.push_back("exit");
   builtin.push_back("echo");
   builtin.push_back("type");
+  builtin.push_back("pwd");
   do
   {
   std::cout << "$ ";
@@ -99,6 +106,10 @@ int main() {
   if(user_input=="exit")
   {
     break;
+  }
+  else if(user_input=="pwd")
+  {
+    pwd();
   }
   else if(user_input.substr(0,5)=="echo ")
   {
@@ -128,6 +139,6 @@ int main() {
   {
     execute_file(user_input);
   }
-  }
+}
   while(true);
 }
