@@ -3,11 +3,84 @@
 #include <vector>
 #include <sstream>
 #include <cstdlib>
+#include <algorithm>
+#include <sys/wait.h>
 #ifdef _WIN32 // Identifies if os is Windows
     #include <io.h>
 #else // If not Windows then os is Linux
     #include <unistd.h>
 #endif
+std::string get_command_path(const std::string &user_input)
+{
+  char* path=getenv("PATH");
+  if(!path)
+  {
+    return "";
+  }
+      std::istringstream ss(path);
+      std::string dir;
+      #ifdef _WIN32
+      while(getline(ss,dir,';'))
+      {
+        std::string full_path=dir+"/"+user_input;
+        if(!_access(full_path.c_str(),0))
+        {
+          return full_path;
+        }
+      }
+      #else
+      while(getline(ss,dir,':'))
+      {
+        std::string full_path=dir+"/"+user_input;
+        if(!access(full_path.c_str(),X_OK))
+        {
+          return full_path;
+        }
+      }
+      #endif
+      return "";
+    }
+int execute_file(std::string user_input)
+{
+  std::istringstream ss(user_input);
+  std::vector<std::string> args;
+  std::string token;
+  while(ss>>token)
+  {
+    args.push_back(token);
+  }
+  if(args.empty())
+  {
+    return 0;
+  }
+  std::string path=get_command_path(args[0]);
+  if(path.empty())
+  {
+    std::cout<<args[0]<<": command not found"<<'\n';
+    return 1;
+  }
+  std::vector<char *> argv;
+  for(auto &arg:args)
+  {
+    argv.push_back(arg.data());
+  }
+  argv.push_back(nullptr);
+  pid_t pid=fork();
+  if(pid==-1)
+  {
+    perror("fork");
+    return 1;
+  }
+  if(pid==0)
+  {
+     execv(path.c_str(), argv.data());
+        perror("execv");
+        _exit(1);
+  }
+   int status;
+    waitpid(pid, &status, 0);
+    return WEXITSTATUS(status);
+}
 int main() {
   // Flush after every std::cout / std:cerr
   std::cout << std::unitbuf;
@@ -33,43 +106,28 @@ int main() {
   }
   else if(user_input.substr(0,5)=="type ")
   {
-    bool type_found=std::find(builtin.begin(),builtin.end(),user_input.substr(5))!=builtin.end();
+    std::string command=user_input.substr(5);
+    bool type_found=std::find(builtin.begin(),builtin.end(),command)!=builtin.end();
     if(type_found)
-        std::cout<<user_input.substr(5)<<" "<<"is a shell builtin"<<'\n';
-    else 
+      std::cout<<command<<" is a shell builtin"<<"\n";
+    else
     {
-      std::string path=getenv("PATH");
-      std::istringstream ss(path);
-      std::string dir;
-      #ifdef _WIN32
-      while(getline(ss,dir,';'))
+      std::string full_path=get_command_path(command);
+      if(!full_path.empty())
       {
-        std::string full_path=dir+"/"+user_input.substr(5);
-        if(!_access(full_path.c_str(),0))
-        {
-          std::cout<<user_input.substr(5)<<" "<<"is "<<full_path<<'\n';
-          type_found=true;
-          break;
-        }
+        std::cout<<command<<" is "<<full_path<<"\n";
+        type_found=true;
       }
-      #else
-      while(getline(ss,dir,':'))
-      {
-        std::string full_path=dir+"/"+user_input.substr(5);
-        if(!access(full_path.c_str(),X_OK))
-        {
-          std::cout<<user_input.substr(5)<<" "<<"is "<<full_path<<'\n';
-          type_found=true;
-          break;
-        }
-      }
-      #endif
     }
     if(!type_found)
-      std::cout<<user_input.substr(5)<<": not found"<<"\n";
+    {
+      std::cout<<command<<": not found\n";
+    }
   }
   else
-  std::cout<<user_input<<": command not found"<<"\n";
+  {
+    execute_file(user_input);
+  }
   }
   while(true);
 }
