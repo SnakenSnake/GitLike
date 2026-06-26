@@ -17,9 +17,14 @@ std::vector<std::string> tokenize(std::string &input)
   std::string curr;
   bool singlequote=false;
   bool doublequote=false;
-  for(char c:input)
+  for(int i=0;i<input.size();i++)
   {
-    if(c=='\''&&!doublequote)
+    char c=input[i];
+    if(!singlequote&&c=='\\'&&i+1<input.size())
+    {
+      curr=curr+input[++i];
+    }
+    else if(c=='\''&&!doublequote)
     {
       singlequote=!singlequote;
     }
