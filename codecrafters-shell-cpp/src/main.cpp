@@ -15,6 +15,7 @@
     #include <unistd.h>
 #endif
   std::vector<std::string> builtin={"echo","exit","pwd","cd","type"};
+  namespace fs=std::filesystem;
 struct Redirection{
   int fd;
   std::string filename;
@@ -121,6 +122,48 @@ std::vector<std::string> autocomplete(std::string curr)
 
     matches.erase(unique(matches.begin(), matches.end()),matches.end());
     return matches;
+}
+std::vector<std::string> getFileMatches(std::string &input)
+{
+  std::vector<std::string> matches;
+  std::string dir=".";
+  std::string prefix=input;
+  size_t pos=input.find_last_of("/\\");
+  std::string base="";
+  if(pos!=std::string::npos)
+  {
+    base=input.substr(0,pos+1);
+    dir=input.substr(0,pos);
+    prefix=input.substr(pos+1);
+    if(dir.empty())
+    {
+      dir="/";
+    }
+  }
+  try
+  {
+    for(auto &entry:fs::directory_iterator(dir))
+    {
+      std::string name=entry.path().filename().string();
+      if(name.rfind(prefix,0)==0)
+      {
+        if(entry.is_directory())
+        {
+          matches.push_back(base+name+"/");
+        }
+        else
+        {
+          matches.push_back(base+name);
+        }
+      }
+    }
+  }
+  catch(...)
+  {
+    // catch all exceptions
+  }
+  sort(matches.begin(),matches.end());
+  return matches;
 }
 std::vector<std::string> tokenize(std::string &input)
 {
@@ -311,7 +354,15 @@ int main() {
       {
         word=user_input.substr(pos+1);
       }
-      auto matches=autocomplete(word);
+      std::vector<std::string> matches;
+      if(pos==std::string::npos)
+      {
+        matches=autocomplete(word);
+      }
+      else
+      {
+        matches=getFileMatches(word);
+      }
       std::string prefix=LCP(matches);
       if(matches.empty())
       {
@@ -325,7 +376,8 @@ int main() {
         lastTab=false;
         user_input.erase(user_input.size()-word.size());
         user_input+=matches[0];
-        user_input+=" ";
+        if(matches[0].back()!='/')
+            user_input+=" ";
         std::cout<<"\r\33[2K";
         std::cout<<"$ "<<user_input;
         std::cout.flush();
