@@ -66,6 +66,26 @@ char getch()
   tcsetattr(STDIN_FILENO,TCSANOW,&oldt);
   return c;
 }
+std::string LCP(std::vector<std::string> &matches)
+{
+  if(matches.empty())
+  {
+    return "";
+  }
+  std::string prefix=matches[0];
+  for(int i=1;i<matches.size();i++)
+  {
+    while(matches[i].find(prefix)!=0)
+    {
+      prefix.pop_back();
+      if(prefix.empty())
+      {
+        return "";
+      }
+    }
+  }
+  return prefix;
+}
 std::vector<std::string> autocomplete(std::string curr)
 {
   std::vector<std::string> matches;
@@ -258,16 +278,19 @@ int main() {
   {
   std::cout << "$ ";
   std::string user_input;
+  bool lastTab=false;
   while(true)
   {
     char c=getch();
     if(c=='\n')
     {
+      lastTab=false;
       std::cout<<'\n';
       break;
     }
     if(c==127)
     {
+      lastTab=false;
       if(!user_input.empty())
       {
         user_input.pop_back();
@@ -289,28 +312,57 @@ int main() {
         word=user_input.substr(pos+1);
       }
       auto matches=autocomplete(word);
+      std::string prefix=LCP(matches);
+      if(matches.empty())
+      {
+        lastTab=false;
+        std::cout<<'\a';
+        std::cout.flush();
+        continue;
+      }
       if(matches.size()==1)
       {
+        lastTab=false;
         user_input.erase(user_input.size()-word.size());
         user_input+=matches[0];
         user_input+=" ";
         std::cout<<"\r\33[2K";
         std::cout<<"$ "<<user_input;
         std::cout.flush();
+        continue;
       }
-       else if(matches.size()>1)
+      if(prefix.size()>word.size())
       {
-        std::cout<<'\n';
-        for(auto &s:matches)
-          {
-              std::cout<<s<<"  ";
-          }
+          lastTab=false;
+          user_input.erase(user_input.size()-word.size());
+          user_input+=prefix;
+        std::cout << "\r\33[2K";
+        std::cout << "$ " << user_input;
+        std::cout.flush();
+         continue;
+      }
+
+      if(!lastTab)
+      {
+        std::cout<<'\a';
+        std::cout.flush();
+        lastTab=!lastTab;
+      }
+      else
+      {
+        std::cout<<"\n";
+        for(auto s:matches)
+        {
+          std::cout<<s<<" ";
+        }
         std::cout<<'\n';
         std::cout<<"$ "<<user_input;
         std::cout.flush();
-    }
+        lastTab=false;
+      }
     continue;   
-}
+    }
+    lastTab=false;
     user_input+=c;
     std::cout<<c;
     std::cout.flush();
