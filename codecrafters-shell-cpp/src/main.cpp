@@ -7,11 +7,14 @@
 #include <sys/wait.h>
 #include <filesystem>
 #include <fcntl.h>
+#include <termios.h>
+#include <set>
 #ifdef _WIN32 // Identifies if os is Windows
     #include <io.h>
 #else // If not Windows then os is Linux
     #include <unistd.h>
 #endif
+  std::vector<std::string> builtin={"echo","exit","pwd","cd","type"};
 struct Redirection{
   int fd;
   std::string filename;
@@ -50,6 +53,54 @@ void restore_redirections(const std::vector<Redirection>& reds,const std::vector
         dup2(saved[i],reds[i].fd);
         close(saved[i]);
     }
+}
+char getch()
+{
+  char c;
+  termios oldt,newt;
+  tcgetattr(STDIN_FILENO,&oldt);
+  newt=oldt;
+  newt.c_lflag&=~(ICANON|ECHO);
+  tcsetattr(STDIN_FILENO,TCSANOW,&newt);
+  read(STDIN_FILENO,&c,1);
+  tcsetattr(STDIN_FILENO,TCSANOW,&oldt);
+  return c;
+}
+std::vector<std::string> autocomplete(std::string curr)
+{
+  std::vector<std::string> matches;
+  for(auto &cmd:builtin)
+  {
+    if(cmd.find(curr)==0)
+    {
+      matches.push_back(cmd);
+    }
+  }
+  char *path=getenv("PATH");
+  if(path)
+  {
+    std::istringstream ss(path);
+    std::string dir;
+    while(getline(ss,dir,':'))
+    {
+      if(!std::filesystem::exists(dir))
+      {
+        continue;
+      }
+      for(auto &entry :std::filesystem::directory_iterator(dir))
+      {
+        std::string file=entry.path().filename().string();
+        if(file.find(curr)==0)
+        {
+          matches.push_back(file);
+        }
+      }
+    }
+  }
+  sort(matches.begin(), matches.end());
+
+    matches.erase(unique(matches.begin(), matches.end()),matches.end());
+    return matches;
 }
 std::vector<std::string> tokenize(std::string &input)
 {
@@ -203,16 +254,68 @@ int main() {
   std::cerr << std::unitbuf;
 
   // TODO: Uncomment the code below to pass the first stage
-  std::vector<std::string> builtin;
-  builtin.push_back("exit");
-  builtin.push_back("echo");
-  builtin.push_back("type");
-  builtin.push_back("pwd");
   do
   {
   std::cout << "$ ";
   std::string user_input;
-  std::getline(std::cin,user_input);
+  while(true)
+  {
+    char c=getch();
+    if(c=='\n')
+    {
+      std::cout<<'\n';
+      break;
+    }
+    if(c==127)
+    {
+      if(!user_input.empty())
+      {
+        user_input.pop_back();
+        std::cout<<"\b \b";
+        std::cout.flush();
+      }
+      continue;
+    }
+    if(c=='\t')
+    {
+      size_t pos=user_input.find_last_of(" ");
+      std::string word;
+      if(pos==std::string::npos)
+      {
+        word=user_input;
+      }
+      else
+      {
+        word=user_input.substr(pos+1);
+      }
+      auto matches=autocomplete(word);
+      if(matches.size()==1)
+      {
+        user_input.erase(user_input.size()-word.size());
+        user_input+=matches[0];
+        user_input+=" ";
+        std::cout<<"\r\33[2K";
+        std::cout<<"$ "<<user_input;
+        std::cout.flush();
+      }
+       else if(matches.size()>1)
+      {
+        std::cout<<'\n';
+        for(auto &s:matches)
+          {
+              std::cout<<s<<"  ";
+          }
+        std::cout<<'\n';
+        std::cout<<"$ "<<user_input;
+        std::cout.flush();
+    }
+    continue;   
+}
+    user_input+=c;
+    std::cout<<c;
+    std::cout.flush();
+    }
+  
   std::vector<std::string> args = tokenize(user_input);
   std::vector<Redirection> redirections;
   std::vector<std::string> realArgs;
