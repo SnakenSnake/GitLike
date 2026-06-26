@@ -12,6 +12,45 @@
 #else // If not Windows then os is Linux
     #include <unistd.h>
 #endif
+struct Redirection{
+  int fd;
+  std::string filename;
+  bool append;
+};
+std::vector<int> apply_redirections(std::vector<Redirection> & reds)
+{
+  std::vector<int> saved;
+  for(auto &r:reds)
+  {
+    saved.push_back(dup(r.fd));
+    int flags= O_WRONLY|O_CREAT;
+    if(r.append)
+    {
+      flags|=O_APPEND;
+    }
+    else
+    {
+      flags|=O_TRUNC;
+    }
+    int fd=open(r.filename.c_str(),flags,0644);
+    if(fd==-1)
+    {
+      perror("open");
+      exit(1);
+    }
+    dup2(fd,r.fd);
+    close(fd);
+  }
+  return saved;
+}
+void restore_redirections(const std::vector<Redirection>& reds,const std::vector<int>& saved)
+{
+    for(int i=0;i<reds.size();i++)
+    {
+        dup2(saved[i],reds[i].fd);
+        close(saved[i]);
+    }
+}
 std::vector<std::string> tokenize(std::string &input)
 {
   std::vector<std::string> args;
@@ -122,24 +161,12 @@ std::string get_command_path(const std::string &user_input)
       #endif
       return "";
     }
-int execute_file(std::string user_input)
+int execute_file(std::vector<std::string> args,std::vector<Redirection> &reds)
 {
-  std::vector<std::string> args= tokenize(user_input);
-  std::string outfile;
-  bool redirect=false;
+  
   if(args.empty())
   {
     return 0;
-  }
-  for(int i=0;i<args.size();i++)
-  {
-    if(args[i]==">"||args[i]=="1>")
-    {
-      redirect=true;
-      outfile=args[i+1];
-      args.resize(i);
-      break;
-    }
   }
   std::string path=get_command_path(args[0]);
   if(path.empty())
@@ -153,17 +180,6 @@ int execute_file(std::string user_input)
     argv.push_back(arg.data());
   }
   argv.push_back(nullptr);
-  int fd=-1;
-  if(redirect)
-  {
-    fd=open(outfile.c_str(),O_WRONLY|O_CREAT|O_TRUNC,0644);
-    if(fd==-1)
-  {
-    perror("open");
-    return 1;
-  }
-  }
-  
   pid_t pid=fork();
   if(pid==-1)
   {
@@ -172,42 +188,14 @@ int execute_file(std::string user_input)
   }
   if(pid==0)
   {
-     if (redirect)
-    {
-        dup2(fd, STDOUT_FILENO);
-        close(fd);
-    }
+     apply_redirections(reds);
      execv(path.c_str(), argv.data());
         perror("execv");
         _exit(1);
   }
-  if(redirect)
-  {
-    close(fd);
-  }
    int status;
     waitpid(pid, &status, 0);
     return WEXITSTATUS(status);
-}
-void redirect_stdout_begin(int &saved_stdout, int &fd, const std::string &outfile)
-{
-    saved_stdout = dup(STDOUT_FILENO);
-
-    fd = open(outfile.c_str(),
-              O_WRONLY | O_CREAT | O_TRUNC,
-              0644);
-
-    dup2(fd, STDOUT_FILENO);
-}
-
-void redirect_stdout_end(int saved_stdout, int fd)
-{
-    fflush(stdout);
-
-    dup2(saved_stdout, STDOUT_FILENO);
-
-    close(saved_stdout);
-    close(fd);
 }
 int main() {
   // Flush after every std::cout / std:cerr
@@ -226,18 +214,36 @@ int main() {
   std::string user_input;
   std::getline(std::cin,user_input);
   std::vector<std::string> args = tokenize(user_input);
-  bool redirect = false;
-  std::string outfile;
+  std::vector<Redirection> redirections;
+  std::vector<std::string> realArgs;
   for(int i=0;i<args.size();i++)
   {
     if(args[i]==">"||args[i]=="1>")
     {
-        redirect=true;
-        outfile=args[i+1];
-        args.resize(i);
-        break;
+        redirections.push_back({STDOUT_FILENO,args[i+1],false});
+        i++;
     } 
+    else if(args[i]==">>"||args[i]=="1>>")
+    {
+      redirections.push_back({STDOUT_FILENO,args[i+1],true});
+      i++;
+    }
+    else if(args[i]=="2>")
+    {
+      redirections.push_back({STDERR_FILENO,args[i+1],false});
+      i++;
+    }
+    else if(args[i]=="2>>")
+    {
+      redirections.push_back({STDERR_FILENO,args[i+1],true});
+      i++;
+    }
+    else
+    {
+      realArgs.push_back(args[i]);
+    }
   }
+  args=realArgs;
   if(args.empty())
   {
     continue;
@@ -250,11 +256,9 @@ int main() {
   {
     int saved_stdout=-1;
     int fd=-1;
-    if(redirect)
-    redirect_stdout_begin(saved_stdout, fd, outfile);
+    auto saved=apply_redirections(redirections);
     pwd();
-    if(redirect)
-    redirect_stdout_end(saved_stdout, fd);
+    restore_redirections(redirections,saved);
   }
   else if(args[0]=="cd")
   {
@@ -266,22 +270,17 @@ int main() {
     int saved_stdout=-1;
     int fd=-1;
 
-    if(redirect)
-    {
-      redirect_stdout_begin(saved_stdout, fd, outfile);
-    }
+    auto saved=apply_redirections(redirections);
     echo(args);
 
-    if (redirect)
-      redirect_stdout_end(saved_stdout, fd);
+    restore_redirections(redirections,saved);
   }
   else if(args[0]=="type")
   {
     int saved_stdout = -1;
     int fd = -1;
 
-    if (redirect)
-    redirect_stdout_begin(saved_stdout, fd, outfile);
+    auto saved=apply_redirections(redirections);
     if(args.size()<2)
     {
       continue;
@@ -304,12 +303,11 @@ int main() {
       std::cout<<command<<": not found\n";
     }
 
-  if (redirect)
-    redirect_stdout_end(saved_stdout, fd);
+  restore_redirections(redirections,saved);
   }
   else
   {
-    execute_file(user_input);
+    execute_file(args,redirections);
   }
 }
   while(true);
