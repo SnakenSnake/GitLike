@@ -17,8 +17,10 @@
     #include <unistd.h>
 #endif
   int nextJob=1; 
+  int historyIndex=0;
+  std::vector<std::string> history;
   std::map<std::string,std::string> completeC;
-  std::vector<std::string> builtin={"echo","exit","pwd","cd","type","complete","jobs"};
+  std::vector<std::string> builtin={"echo","exit","pwd","cd","type","complete","jobs","history"};
   namespace fs=std::filesystem;
 struct Redirection{
   int fd;
@@ -338,6 +340,29 @@ std::vector<std::string> tokenize(std::string &input)
       }
       args.push_back("&");
     }
+    else if(!singlequote&&!doublequote&&(c=='>'||(c=='1'&&i+1<input.size()&&input[i+1]=='>')||(c=='2'&&i+1<input.size()&&input[i+1]=='>')))
+    {
+      if(!curr.empty())
+      {
+        args.push_back(curr);
+        curr.clear();
+      }
+      std::string op;
+      if(c=='1'||c=='2')
+      {
+        op+=c;
+        i++;
+      }
+      op+='>';
+      if(i+1<input.size()&&input[i+1]=='>')
+      {
+        
+        op+='>';
+        i++;
+      }
+      args.push_back(op);
+      continue;
+    }
     else
     {
       curr+=c;
@@ -504,6 +529,27 @@ void trim(std::string &s)
 }
 bool execute_builtin(std::vector<std::string> &args)
 {
+  if(args[0]=="exit")
+  {
+    exit(0);
+  }
+  if(args[0]=="history")
+  {
+    int start=0;
+    if(args.size()==2)
+    {
+      int n=std::stoi(args[1]);
+      if(n<(int)history.size())
+      {
+        start=history.size()-n;
+      }
+    }
+    for(int i=start;i<history.size();i++)
+    {
+      std::cout<<i+1<<" "<<history[i]<<'\n';
+    }
+    return true;
+  }
   if(args[0]=="echo")
   {
     echo(args);
@@ -674,6 +720,48 @@ int main() {
   while(true)
   {
     char c=getch();
+  
+  if(c==27)
+  {
+    char c1=getch();
+    if(c1=='[')
+    {
+      char c2=getch();
+      if(c2=='A')
+      {
+        if(!history.empty()&&historyIndex>0)
+        {
+          historyIndex--;
+          std::cout<<"\r\33[2K";
+          std::cout<<"$ ";
+          user_input=history[historyIndex];
+          std::cout<<user_input;
+          std::cout.flush();
+        }
+        continue;
+      }
+      if(c2=='B')
+      {
+        if(historyIndex<history.size())
+        {
+          historyIndex++;
+          std::cout << "\r\33[2K";
+          std::cout << "$ ";
+          if(historyIndex==history.size())
+          {
+            user_input.clear();
+          }
+          else
+          {
+            user_input=history[historyIndex];
+            std::cout<<user_input;
+          }
+          std::cout.flush();
+        }
+        continue;
+      }
+    }
+  }
     if(c=='\n')
     {
       lastTab=false;
@@ -800,13 +888,19 @@ int main() {
     std::cout<<c;
     std::cout.flush();
     }
+    if(!user_input.empty())
+    {
+      history.push_back(user_input);
+      historyIndex=history.size();
+    }
+    
   size_t pipePos=user_input.find('|');
   if(pipePos!=std::string::npos)
   {
     execute_pipe(user_input);
     continue;
   }
-  std::vector<std::string> args = tokenize(user_input);
+  std::vector<std::string> args=tokenize(user_input);
   std::vector<Redirection> redirections;
   std::vector<std::string> realArgs;
   for(int i=0;i<args.size();i++)
@@ -836,76 +930,20 @@ int main() {
       realArgs.push_back(args[i]);
     }
   }
+
   args=realArgs;
   if(args.empty())
   {
     continue;
   }
-  if(args[0]=="exit")
-  {
-    break;
-  }
-  else if(args[0]=="jobs")
-  {
-    jobs_func(args);
-  }
-  else if(args[0]=="complete")
-  {
-    complete(args);
-  }
-  else if(args[0]=="pwd")
-  {
-    int saved_stdout=-1;
-    int fd=-1;
+
+  if(std::find(builtin.begin(),builtin.end(),args[0])!=builtin.end())
+{
     auto saved=apply_redirections(redirections);
-    pwd();
-    restore_redirections(redirections,saved);
-  }
-  else if(args[0]=="cd")
-  {
-    if(args.size()>1)
-    cd(args[1]);
-  }
-  else if(args[0]=="echo")
-  {
-    int saved_stdout=-1;
-    int fd=-1;
-
-    auto saved=apply_redirections(redirections);
-    echo(args);
-
-    restore_redirections(redirections,saved);
-  }
-  else if(args[0]=="type")
-  {
-    int saved_stdout = -1;
-    int fd = -1;
-
-    auto saved=apply_redirections(redirections);
-    if(args.size()<2)
-    {
-      continue;
-    }
-    std::string command=args[1];
-    bool type_found=std::find(builtin.begin(),builtin.end(),command)!=builtin.end();
-    if(type_found)
-      std::cout<<command<<" is a shell builtin"<<"\n";
-    else
-    {
-      std::string full_path=get_command_path(command);
-      if(!full_path.empty())
-      {
-        std::cout<<command<<" is "<<full_path<<"\n";
-        type_found=true;
-      }
-    }
-    if(!type_found)
-    {
-      std::cout<<command<<": not found\n";
-    }
-
-  restore_redirections(redirections,saved);
-  }
+    execute_builtin(args);
+    restore_redirections(redirections, saved);
+    continue;
+}
   else
   {
     execute_file(args,redirections);
