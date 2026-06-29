@@ -77,11 +77,76 @@ void declare(std::vector<std::string> &args)
       std::string name=args[1].substr(0,pos);
       std::string val=args[1].substr(pos+1);
       if(isvalididentifier(name))
-      declarevar[name]=val;
+      {
+        declarevar[name]=val;
+        setenv(name.c_str(),val.c_str(),1);
+      }
       else
       std::cout<<"declare: `"<<args[1]<<"\': not a valid identifier"<<'\n';
     }
   }
+}
+std::string expand_variables(std::string &s)
+{
+  std::string res;
+  for(size_t i=0;i<s.size();)
+  {
+    if(s[i]!='$')
+    {
+      res+=s[i];
+      i++;
+      continue;
+    }
+    i++;
+    std::string var;
+    if(i<s.size()&&s[i]=='{')
+    {
+      i++;
+    while (i<s.size()&&(std::isalnum((unsigned char)s[i])||s[i]=='_'))
+    {
+    var+=s[i];
+    i++;
+    }
+    if(i>=s.size()&&s[i]!='}')
+    {
+      res+="${"+var;
+      continue;
+    }
+    i++;
+    }
+    else
+    {
+      if(i>=s.size()||!(std::isalpha(s[i])||s[i]=='_'))
+      {
+        res+="$";
+        continue;
+      }
+      else
+      {
+         while(i<s.size()&&(std::isalnum((unsigned char)s[i])||s[i]=='_'))
+      {
+        var+=s[i];
+        i++;
+      }
+      }
+    }
+    if(var.empty())
+    {
+      continue;
+    }
+    auto it=declarevar.find(var);
+    if(it!=declarevar.end())
+    {
+      res+=it->second;
+      continue;
+    }
+    char *val=getenv(var.c_str());
+    if(val)
+    {
+      res+=val;
+    }
+  }
+  return res;
 }
 void history_boot()
 {
@@ -775,6 +840,17 @@ void execute_pipe(std::string &input)
   for(int i=0;i<commands.size();i++)
   {
     std::vector<std::string> args=tokenize(commands[i]);
+    for(auto &arg:args)
+  {
+    arg=expand_variables(arg);
+  } 
+  args.erase(
+    std::remove_if(args.begin(), args.end(),
+        [](const std::string &s)
+        {
+            return s.empty();
+        }),
+    args.end());
     if(args.empty())
     {
       continue;
@@ -948,6 +1024,7 @@ int main() {
       std::string command;
       ss>>command;
       std::vector<std::string> tokens=tokenize(user_input);
+      
       std::string prevword="";
       if(endswithSpace)
       {
@@ -1049,6 +1126,17 @@ int main() {
     continue;
   }
   std::vector<std::string> args=tokenize(user_input);
+  for(auto &arg:args)
+    {
+        arg=expand_variables(arg);
+    }
+    args.erase(
+    std::remove_if(args.begin(), args.end(),
+        [](const std::string &s)
+        {
+            return s.empty();
+        }),
+    args.end());
   std::vector<Redirection> redirections;
   std::vector<std::string> realArgs;
   for(int i=0;i<args.size();i++)
